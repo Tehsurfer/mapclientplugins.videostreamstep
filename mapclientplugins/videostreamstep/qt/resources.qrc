@@ -1,0 +1,6 @@
+
+<RCC>
+  <qresource prefix="videostreamstep">
+    <file>images/utility.png</file>
+  </qresource>
+</RCC>
