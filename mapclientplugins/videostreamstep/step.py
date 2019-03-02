@@ -4,10 +4,77 @@ MAP Client Plugin Step
 """
 import json
 
-from PySide import QtGui
+import cv2
+
+from PySide import QtGui, QtCore
 
 from mapclient.mountpoints.workflowstep import WorkflowStepMountPoint
 from mapclientplugins.videostreamstep.configuredialog import ConfigureDialog
+
+
+class readVideo(object):
+    def __init__(self, filename, context):
+        self._filename = filename
+        self._context = context
+        self._imageField = None
+        self._fps = 0
+        self._totalFrame = 0
+        self._currentFrame = 0
+        self.cap = None
+        self._material = None
+        # self._captureVideo()
+
+    def play(self):
+        timer = QtCore.QTimer()
+        timer.timeout.connect(self._playVideoFrame)
+        timer.start(1000 / self._fps)
+
+    def _playVideoFrame(self):
+        if self.cap.isOpened():
+            flag, capture = self.cap.read()
+            if flag is False:
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                flag, capture = self.cap.read()
+            # yield capture.tobytes()
+            self._imageField.setBuffer(capture.tobytes())
+            self._currentFrame = self._currentFrame + 1
+
+    def captureVideo(self):
+        if not self.cap:
+            self.cap = cv2.VideoCapture(self._filename)
+        self._fps = int(self.cap.get(cv2.CAP_PROP_FPS))
+        self._totalFrame = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if self.cap.isOpened():
+            flag, capture = self.cap.read()
+            image_dimension = self._loadFrames(capture)
+            return image_dimension
+
+    def _loadFrames(self, capture2):
+        width = capture2.shape[1]
+        height = capture2.shape[0]
+        size = capture2.size
+        itemsize = capture2.itemsize
+        if not self._imageField:
+            region = self._context.getDefaultRegion()
+            fieldModule = region.getFieldmodule()
+            self._imageField = fieldModule.createFieldImage()
+            self._imageField.setSizeInPixels([width, height, 1])
+            self._imageField.setPixelFormat(self._imageField.PIXEL_FORMAT_BGR)
+            self._imageField.setBuffer(capture2.tobytes())
+            materialmodule = self._context.getMaterialmodule()
+            self._material = materialmodule.createMaterial()
+            self._material.setTextureField(1, self._imageField)
+        return [width, height]
+
+    # def _getVideoInfo(self):
+    #     cap = cv2.VideoCapture(self._filename)
+    #     fps = int(cap.get(cv2.CAP_PROP_FPS))
+    #     totalframe = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    #     if cap.isOpened():
+    #         flag, capture = cap.read()
+    #         width = capture.shape[1]
+    #         height = capture.shape[0]
+    #     return [width, height], fps, totalframe
 
 
 class videostreamStep(WorkflowStepMountPoint):
@@ -25,13 +92,17 @@ class videostreamStep(WorkflowStepMountPoint):
         # Ports:
         self.addPort(('http://physiomeproject.org/workflow/1.0/rdf-schema#port',
                       'http://physiomeproject.org/workflow/1.0/rdf-schema#uses',
-                      '<not-set>'))
+                      'http://physiomeproject.org/workflow/1.0/rdf-schema#image_context_data'))
+        self.addPort(('http://physiomeproject.org/workflow/1.0/rdf-schema#port',
+                      'http://physiomeproject.org/workflow/1.0/rdf-schema#uses',
+                      'http://physiomeproject.org/workflow/1.0/rdf-schema#file_location'))
         self.addPort(('http://physiomeproject.org/workflow/1.0/rdf-schema#port',
                       'http://physiomeproject.org/workflow/1.0/rdf-schema#provides',
-                      '<not-set>'))
+                      'http://physiomeproject.org/workflow/1.0/rdf-schema#video_object'))
         # Port data:
-        self._portData0 = None # <not-set>
-        self._portData1 = None # <not-set>
+        self._portData0 = None # image_context_data
+        self._portData1 = None # file_location
+        self._portData2 = None # <not-set>
         # Config:
         self._config = {}
         self._config['identifier'] = ''
@@ -43,6 +114,10 @@ class videostreamStep(WorkflowStepMountPoint):
         may be connected up to a button in a widget for example.
         """
         # Put your execute step code here before calling the '_doneExecution' method.
+        context = self._portData0
+        filename = self._portData1
+        self._portData2 = readVideo(filename, context)
+
         self._doneExecution()
 
     def setPortData(self, index, dataIn):
@@ -54,7 +129,10 @@ class videostreamStep(WorkflowStepMountPoint):
         :param index: Index of the port to return.
         :param dataIn: The data to set for the port at the given index.
         """
-        self._portData0 = dataIn # <not-set>
+        if index == 0:
+            self._portData0 = dataIn  # http://physiomeproject.org/workflow/1.0/rdf-schema#file_location
+        elif index == 1:
+            self._portData1 = dataIn  # http://physiomeproject.org/workflow/1.0/rdf-schema#context
 
     def getPortData(self, index):
         """
@@ -64,7 +142,7 @@ class videostreamStep(WorkflowStepMountPoint):
 
         :param index: Index of the port to return.
         """
-        return self._portData1 # <not-set>
+        return self._portData2 # <not-set>
 
     def configure(self):
         """
